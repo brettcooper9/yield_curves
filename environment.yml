@@ -1,0 +1,24 @@
+name: yield_curves
+channels:
+  - conda-forge
+  - defaults
+dependencies:
+  - python=3.11
+  - numpy>=1.24
+  - pandas>=2.0
+  - scipy>=1.10
+  - matplotlib>=3.7
+  - seaborn>=0.12
+  - jupyter>=1.0
+  - jupyterlab>=4.0
+  - openpyxl>=3.1  # for Excel file reading
+  - xlrd>=2.0  # for older Excel formats
+  - pytest>=7.4
+  - pytest-cov>=4.1
+  - black>=23.0  # code formatting
+  - flake8>=6.0  # linting
+  - pandera>=0.17  # data validation
+  - pydantic>=2.0  # data models
+  - pip>=23.0
+  - pip:
+    - nelson-siegel-svensson>=0.4.2  # Nelson-Siegel yield curve fitting
