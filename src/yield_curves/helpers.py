@@ -62,11 +62,14 @@ def monthly_bond_return(yields: np.ndarray, i: int) -> float:
 
     try:
         # Henckel's formula for monthly bond return
+        # Formula matches R implementation exactly
         result = (
             prior_mo / 1200
-            + (prior_mo / curr_mo) * (1 - (1 + curr_mo / 200) ** (-2 * (10 - 1/12)))
-            + (1 + curr_mo / 200) ** (-2 * (10 - 1/12))
-            - 1
+            + (
+                (prior_mo / curr_mo) * (1 - (1 + curr_mo / 200) ** (-2 * (10 - 1/12)))
+                + (1 + curr_mo / 200) ** (-2 * (10 - 1/12))
+                - 1
+            )
         )
         return result
     except Exception as e:
