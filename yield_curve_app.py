@@ -185,6 +185,84 @@ fig.update_layout(
 # Display the plot
 st.plotly_chart(fig, use_container_width=True)
 
+# WPU Composition Chart (if WPU is in data)
+if 'WPU' in countries:
+    st.subheader("WPU Composition")
+
+    # Load WPU weights
+    import pandas as pd
+    from pathlib import Path
+
+    try:
+        DATA_DIR = Path('data/raw')
+        wpu_weights = pd.read_excel(DATA_DIR / 'wpu_weights.xlsx')
+        wpu_weights['Date'] = pd.to_datetime(wpu_weights['Column1'])
+        wpu_weights = wpu_weights.set_index('Date')
+
+        # Get weights for selected date (use most recent available)
+        weight_date_list = wpu_weights.index[wpu_weights.index <= selected_date]
+        if len(weight_date_list) > 0:
+            weight_date = weight_date_list[-1]
+            weights_row = wpu_weights.loc[weight_date]
+
+            # Country mapping
+            country_map = {
+                'AUD': 'Australia', 'BRL': 'Brazil', 'CAD': 'Canada', 'CHF': 'Switzerland',
+                'CNY': 'China', 'EUR': 'Eurozone', 'GBP': 'UK', 'INR': 'India',
+                'JPY': 'Japan', 'MXN': 'Mexico', 'USD': 'United States'
+            }
+
+            # Extract weights
+            weight_data = []
+            for currency, country_name in country_map.items():
+                if currency in weights_row.index:
+                    weight = weights_row[currency]
+                    if not pd.isna(weight) and weight > 0:
+                        weight_data.append({'Country': country_name, 'Weight': weight})
+
+            # Create horizontal bar chart
+            weight_df = pd.DataFrame(weight_data).sort_values('Weight', ascending=True)
+
+            fig_weights = go.Figure(go.Bar(
+                x=weight_df['Weight'],
+                y=weight_df['Country'],
+                orientation='h',
+                marker=dict(color='steelblue'),
+                text=weight_df['Weight'].round(2),
+                texttemplate='%{text}%',
+                textposition='outside',
+                hovertemplate='<b>%{y}</b><br>Weight: %{x:.2f}%<extra></extra>'
+            ))
+
+            fig_weights.update_layout(
+                title=dict(
+                    text=f"WPU Weight Composition - {selected_date.strftime('%B %Y')}<br><sub>Weight date: {weight_date.strftime('%Y-%m-%d')}</sub>",
+                    font=dict(size=18)
+                ),
+                xaxis=dict(
+                    title="Weight (%)",
+                    gridcolor='lightgray',
+                    showgrid=True,
+                    range=[0, max(weight_df['Weight']) * 1.15]  # Add space for labels
+                ),
+                yaxis=dict(
+                    title="",
+                    gridcolor='lightgray'
+                ),
+                height=400,
+                plot_bgcolor='white',
+                margin=dict(l=120, r=50, t=80, b=50)
+            )
+
+            st.plotly_chart(fig_weights, use_container_width=True)
+
+            # Show total
+            total_weight = weight_df['Weight'].sum()
+            st.caption(f"Total weight: {total_weight:.2f}% (excludes Russia which is not in yield curve data)")
+
+    except Exception as e:
+        st.warning(f"Could not load WPU weights: {e}")
+
 # Animation logic
 if animate:
     import time
