@@ -280,10 +280,14 @@ def build_dataframe_with_model_selection(selected_date_idx, selected_models, max
             # Get raw data for this country and date
             raw_date_mask = raw_dates == dates[selected_date_idx]
             if raw_date_mask.sum() > 0:
-                raw_date_idx = np.where(raw_dates == dates[selected_date_idx])[0][0] - raw_dates.index[0]
+                # Get the position in the raw_dates Series
+                # np.where returns the position (0-indexed), which corresponds directly to
+                # the row in raw_yields_matrix (also 0-indexed)
+                matrix_row_idx = np.where(raw_dates == dates[selected_date_idx])[0][0]
+
                 country_mask = raw_countries == country
                 obs_maturities = raw_maturities[country_mask]
-                obs_yields = raw_yields_matrix[raw_date_idx, country_mask]
+                obs_yields = raw_yields_matrix[matrix_row_idx, country_mask]
 
                 raw_yield_dict = {}
                 for mat, yld in zip(obs_maturities, obs_yields):
