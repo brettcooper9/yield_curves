@@ -13,6 +13,7 @@ import numpy as np
 import pandas as pd
 from typing import Dict, Tuple, Callable
 from scipy.optimize import least_squares
+from scipy.interpolate import CubicSpline, BSpline, make_interp_spline
 
 
 class NelsonSiegelCurve:
