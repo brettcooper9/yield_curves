@@ -111,8 +111,8 @@ st.sidebar.subheader("Highlight Countries")
 if 'WPU' not in countries:
     st.sidebar.warning("⚠️ WPU curve not found in data. Make sure to run all cells in the fitting notebook.")
 
-# Default: select all countries
-default_countries = sorted(countries)
+# Default: select WPU and top 4 currencies by weight (US, EU, GB, JP)
+default_countries = ['WPU', 'US', 'EU', 'GB', 'JP'] if 'WPU' in countries else ['US', 'EU', 'GB', 'JP']
 highlighted_countries = st.sidebar.multiselect(
     "Select countries to highlight:",
     options=sorted(countries),
