@@ -97,6 +97,11 @@ animate = st.sidebar.checkbox("Auto-play animation", value=False)
 
 # Country selection for highlighting
 st.sidebar.subheader("Highlight Countries")
+
+# Check if WPU is in the data
+if 'WPU' not in countries:
+    st.sidebar.warning("⚠️ WPU curve not found in data. Make sure to run all cells in the fitting notebook.")
+
 default_countries = ['WPU', 'US'] if 'WPU' in countries and 'US' in countries else countries[:2].tolist()
 highlighted_countries = st.sidebar.multiselect(
     "Select countries to highlight:",
@@ -122,11 +127,13 @@ for country in sorted(df_filtered['country'].unique()):
         opacity = 1.0
         mode = 'lines+markers'
         showlegend = True
+        line_color = None  # Use default plotly colors
     else:
-        line_width = 1
-        opacity = 0.3
+        line_width = 2  # Bolder gray lines
+        opacity = 0.6  # More visible
         mode = 'lines'
         showlegend = False
+        line_color = '#888888'  # Darker gray
 
     fig.add_trace(go.Scatter(
         x=df_country['maturity'],
@@ -135,7 +142,7 @@ for country in sorted(df_filtered['country'].unique()):
         name=country,
         line=dict(
             width=line_width,
-            color='lightgray' if not is_highlighted else None
+            color=line_color
         ),
         opacity=opacity,
         marker=dict(size=6 if is_highlighted else 3),
