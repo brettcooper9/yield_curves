@@ -262,15 +262,23 @@ if 'WPU' in countries:
             fig_weights = go.Figure()
 
             for idx, row in weight_df.iterrows():
+                # Show country code (e.g., "US") for weights > 5%, otherwise just percentage
+                if row['Weight'] > 5:
+                    text_label = f"{row['CountryCode']}<br>{row['Weight']:.1f}%"
+                else:
+                    text_label = f"{row['Weight']:.1f}%"
+
                 fig_weights.add_trace(go.Bar(
                     x=[row['Weight']],
                     y=['WPU'],
                     orientation='h',
                     name=row['Country'],
                     marker=dict(color=row['Color']),  # Use matching color from yield curve chart
-                    text=f"{row['Weight']:.1f}%",
+                    text=text_label,
                     textposition='inside',
-                    hovertemplate=f"<b>{row['Country']}</b><br>Weight: {row['Weight']:.2f}%<extra></extra>"
+                    textfont=dict(color='white', size=11),
+                    hovertemplate=f"<b>{row['Country']}</b><br>Weight: {row['Weight']:.2f}%<extra></extra>",
+                    showlegend=False  # Remove from legend
                 ))
 
             fig_weights.update_layout(
@@ -289,16 +297,10 @@ if 'WPU' in countries:
                     showticklabels=False
                 ),
                 barmode='stack',
-                height=200,
+                height=150,
                 plot_bgcolor='white',
-                margin=dict(l=50, r=50, t=80, b=50),
-                legend=dict(
-                    orientation='h',
-                    yanchor='bottom',
-                    y=-0.3,
-                    xanchor='center',
-                    x=0.5
-                )
+                margin=dict(l=50, r=50, t=80, b=30),
+                showlegend=False  # No legend needed
             )
 
             st.plotly_chart(fig_weights, use_container_width=True)
