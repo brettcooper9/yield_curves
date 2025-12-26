@@ -19,4 +19,5 @@ dependencies:
   - flake8>=6.0  # linting
   - pandera>=0.17  # data validation
   - pydantic>=2.0  # data models
+  - streamlit>=1.28  # web app framework
   - pip>=23.0

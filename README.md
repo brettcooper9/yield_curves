@@ -14,6 +14,7 @@ This project analyzes government bond yields across multiple countries, fits par
 
 ### Key Features
 
+- **Interactive App:** Web-based yield curve visualization with time animation
 - **Yield Curve Fitting:** Nelson-Siegel and Svensson models for smooth yield curves
 - **Multi-Country Analysis:** Process bond data for multiple countries simultaneously
 - **Currency Swap Analysis:** Evaluate bond returns including FX effects
@@ -82,7 +83,14 @@ yield_curves/
 
 ### Quick Start
 
-1. **Run the notebooks:**
+1. **Run the interactive app:**
+   ```bash
+   streamlit run yield_curve_app.py
+   ```
+
+   See [docs/RUNNING_THE_APP.md](docs/RUNNING_THE_APP.md) for details.
+
+2. **Run the notebooks:**
    ```bash
    jupyter lab
    ```
@@ -91,7 +99,7 @@ yield_curves/
    - `notebooks/02_yield_curve_fitting.ipynb` - Fit yield curves to bond data
    - `notebooks/01_bond_swap_analysis.ipynb` - Analyze swap strategies
 
-2. **Run tests:**
+3. **Run tests:**
    ```bash
    pytest tests/ -v
    ```
