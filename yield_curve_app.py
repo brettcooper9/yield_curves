@@ -460,12 +460,12 @@ fig.update_layout(
             text="● Observed&nbsp;&nbsp;○ Fitted",
             xref="paper",
             yref="paper",
-            x=1.0,
-            y=-0.15,
-            xanchor='left',
+            x=0.98,
+            y=-0.12,
+            xanchor='right',
             yanchor='top',
             showarrow=False,
-            font=dict(size=10, color='#666666')
+            font=dict(size=11, color='#333333')
         )
     ]
 )
@@ -543,7 +543,7 @@ if 'WPU' in countries:
 
             fig_weights.update_layout(
                 title=dict(
-                    text=f"WPU Weight Composition - {selected_date.strftime('%B %Y')}<br><sub>Weight date: {weight_date.strftime('%Y-%m-%d')}</sub>",
+                    text=f"WPU Weight Composition - {selected_date.strftime('%B %Y')}",
                     font=dict(size=18)
                 ),
                 xaxis=dict(

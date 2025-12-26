@@ -86,6 +86,10 @@ for date_idx, date in enumerate(fitting_dates):
         # Get all maturities' observed yields for RMSE calculation
         all_obs_yields = obs_yields.copy()
 
+        # Determine the range of observed maturities for spline clipping
+        min_observed_mat = clean_mats.min()
+        max_observed_mat = clean_mats.max()
+
         # Fit all 4 models
         for model_idx, model_name in enumerate(model_names):
             try:
@@ -101,7 +105,15 @@ for date_idx, date in enumerate(fitting_dates):
                 # Get fitted values at standard maturities
                 fitted_at_maturities = np.zeros(len(unique_maturities))
                 for mat_idx, maturity in enumerate(unique_maturities):
-                    fitted_at_maturities[mat_idx] = curve(maturity)
+                    # For spline models, only use predictions within observed range
+                    if model_name in ['Cubic Spline', 'B-Spline']:
+                        if maturity < min_observed_mat or maturity > max_observed_mat:
+                            fitted_at_maturities[mat_idx] = np.nan
+                        else:
+                            fitted_at_maturities[mat_idx] = curve(maturity)
+                    else:
+                        # Parametric models can extrapolate
+                        fitted_at_maturities[mat_idx] = curve(maturity)
 
                 # Store fitted yields (convert to percentage)
                 all_fitted_yields[model_idx, country_idx, date_idx, :] = fitted_at_maturities * 100
