@@ -35,9 +35,11 @@ print(f"Number of dates: {len(dates)}")
 print(f"Number of series: {len(countries)}")
 print(f"Unique countries: {sorted(set(countries))}")
 
-# Define fitting period (from 2020 onwards as in R code)
-START_YEAR = 2020
-fitting_dates = dates[dates >= f'{START_YEAR}-01-01']
+# Define fitting period
+# Default: Start from when RUB was dropped from WPU basket (2024-08-30)
+# Can be changed to include more historical data
+START_DATE = '2024-08-30'  # When Russia dropped from WPU basket
+fitting_dates = dates[dates >= START_DATE]
 
 # Get unique values for output
 unique_maturities = sorted(set(maturities[~np.isnan(maturities)]))

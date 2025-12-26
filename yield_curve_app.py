@@ -27,6 +27,10 @@ st.set_page_config(
 # Title
 st.title("📈 Yield Curves by Country")
 
+# Configuration
+# Start date: when Russia (RUB) was dropped from WPU basket
+APP_START_DATE = pd.Timestamp('2024-08-30')
+
 # Load data
 @st.cache_data
 def load_yield_data():
@@ -46,6 +50,11 @@ def load_yield_data():
     countries = data['countries']
     dates = pd.to_datetime(data['dates'])
     maturities = data['maturities']
+
+    # Filter to dates >= APP_START_DATE
+    date_mask = dates >= APP_START_DATE
+    dates = dates[date_mask]
+    ns_yields = ns_yields[:, date_mask, :]
 
     # Convert to long-form DataFrame
     rows = []
@@ -102,7 +111,8 @@ st.sidebar.subheader("Highlight Countries")
 if 'WPU' not in countries:
     st.sidebar.warning("⚠️ WPU curve not found in data. Make sure to run all cells in the fitting notebook.")
 
-default_countries = ['WPU', 'US'] if 'WPU' in countries and 'US' in countries else countries[:2].tolist()
+# Default: select all countries
+default_countries = sorted(countries)
 highlighted_countries = st.sidebar.multiselect(
     "Select countries to highlight:",
     options=sorted(countries),
