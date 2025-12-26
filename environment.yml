@@ -20,5 +20,3 @@ dependencies:
   - pandera>=0.17  # data validation
   - pydantic>=2.0  # data models
   - pip>=23.0
-  - pip:
-    - nelson-siegel-svensson>=0.4.2  # Nelson-Siegel yield curve fitting

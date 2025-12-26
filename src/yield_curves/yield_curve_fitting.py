@@ -3,13 +3,70 @@ Yield curve fitting using Nelson-Siegel and Svensson models.
 
 This module provides functions for fitting yield curves to bond data
 using parametric models (Nelson-Siegel and Svensson).
+
+Note: This uses scipy for optimization instead of nelson-siegel-svensson package
+which has compatibility issues. The implementation follows the same mathematical
+formulas as the R YieldCurve package.
 """
 
 import numpy as np
 import pandas as pd
-from typing import Dict, Tuple
-from nelson_siegel_svensson import NelsonSiegelCurve, SvenssonCurve
-from nelson_siegel_svensson.calibrate import calibrate_ns_ols, calibrate_nss_ols
+from typing import Dict, Tuple, Callable
+from scipy.optimize import least_squares
+
+
+class NelsonSiegelCurve:
+    """Nelson-Siegel yield curve model."""
+
+    def __init__(self, beta0: float, beta1: float, beta2: float, tau: float):
+        self.beta0 = beta0
+        self.beta1 = beta1
+        self.beta2 = beta2
+        self.tau = tau
+
+    def __call__(self, t: float) -> float:
+        """Evaluate yield at maturity t."""
+        if t <= 0:
+            return self.beta0 + self.beta1
+        tau_t = t / self.tau
+        exp_term = np.exp(-tau_t)
+        return (self.beta0 +
+                self.beta1 * (1 - exp_term) / tau_t +
+                self.beta2 * ((1 - exp_term) / tau_t - exp_term))
+
+    def __repr__(self):
+        return f"NelsonSiegelCurve(β0={self.beta0:.4f}, β1={self.beta1:.4f}, β2={self.beta2:.4f}, τ={self.tau:.4f})"
+
+
+class SvenssonCurve:
+    """Svensson yield curve model (extension of Nelson-Siegel)."""
+
+    def __init__(self, beta0: float, beta1: float, beta2: float, beta3: float,
+                 tau1: float, tau2: float):
+        self.beta0 = beta0
+        self.beta1 = beta1
+        self.beta2 = beta2
+        self.beta3 = beta3
+        self.tau1 = tau1
+        self.tau2 = tau2
+
+    def __call__(self, t: float) -> float:
+        """Evaluate yield at maturity t."""
+        if t <= 0:
+            return self.beta0 + self.beta1
+        tau1_t = t / self.tau1
+        tau2_t = t / self.tau2
+        exp1 = np.exp(-tau1_t)
+        exp2 = np.exp(-tau2_t)
+        return (self.beta0 +
+                self.beta1 * (1 - exp1) / tau1_t +
+                self.beta2 * ((1 - exp1) / tau1_t - exp1) +
+                self.beta3 * ((1 - exp2) / tau2_t - exp2))
+
+    def __repr__(self):
+        return (f"SvenssonCurve(β0={self.beta0:.4f}, β1={self.beta1:.4f}, "
+                f"β2={self.beta2:.4f}, β3={self.beta3:.4f}, "
+                f"τ1={self.tau1:.4f}, τ2={self.tau2:.4f})")
 
 
 def fit_nelson_siegel(
@@ -17,13 +74,7 @@ def fit_nelson_siegel(
     maturities: np.ndarray
 ) -> Tuple[NelsonSiegelCurve, np.ndarray]:
     """
-    Fit Nelson-Siegel curve to yield data.
-
-    The Nelson-Siegel model represents the yield curve with 4 parameters:
-    - beta0: long-term level
-    - beta1: short-term component
-    - beta2: medium-term component
-    - tau: decay factor
+    Fit Nelson-Siegel curve to yield data using OLS.
 
     Parameters
     ----------
@@ -38,20 +89,31 @@ def fit_nelson_siegel(
         Fitted Nelson-Siegel curve object
     fitted_yields : np.ndarray
         Model-fitted yields at the given maturities
-
-    Examples
-    --------
-    >>> maturities = np.array([0.25, 0.5, 1, 2, 5, 10, 30])
-    >>> yields = np.array([0.015, 0.018, 0.020, 0.022, 0.025, 0.028, 0.030])
-    >>> curve, fitted = fit_nelson_siegel(yields, maturities)
     """
     # Remove any NaN values
     valid_idx = ~np.isnan(yields)
     clean_yields = yields[valid_idx]
     clean_maturities = maturities[valid_idx]
 
-    # Calibrate the Nelson-Siegel model
-    curve, status = calibrate_ns_ols(clean_maturities, clean_yields)
+    # Objective function to minimize
+    def objective(params):
+        beta0, beta1, beta2, tau = params
+        curve = NelsonSiegelCurve(beta0, beta1, beta2, tau)
+        predicted = np.array([curve(t) for t in clean_maturities])
+        return predicted - clean_yields
+
+    # Initial guess
+    x0 = [clean_yields.mean(), -0.02, 0.02, 2.0]
+
+    # Bounds: tau must be positive
+    bounds = ([-np.inf, -np.inf, -np.inf, 0.01],
+              [np.inf, np.inf, np.inf, 100])
+
+    # Fit
+    result = least_squares(objective, x0, bounds=bounds)
+
+    # Create curve object
+    curve = NelsonSiegelCurve(*result.x)
 
     # Get fitted values for all original maturities
     fitted_yields = np.array([curve(t) for t in maturities])
@@ -64,10 +126,7 @@ def fit_svensson(
     maturities: np.ndarray
 ) -> Tuple[SvenssonCurve, np.ndarray]:
     """
-    Fit Svensson curve to yield data.
-
-    The Svensson model extends Nelson-Siegel with 6 parameters for
-    better flexibility in fitting complex yield curve shapes.
+    Fit Svensson curve to yield data using OLS.
 
     Parameters
     ----------
@@ -82,22 +141,33 @@ def fit_svensson(
         Fitted Svensson curve object
     fitted_yields : np.ndarray
         Model-fitted yields at the given maturities
-
-    Examples
-    --------
-    >>> maturities = np.array([0.25, 0.5, 1, 2, 5, 10, 30])
-    >>> yields = np.array([0.015, 0.018, 0.020, 0.022, 0.025, 0.028, 0.030])
-    >>> curve, fitted = fit_svensson(yields, maturities)
     """
     # Remove any NaN values
     valid_idx = ~np.isnan(yields)
     clean_yields = yields[valid_idx]
     clean_maturities = maturities[valid_idx]
 
-    # Calibrate the Svensson model
-    curve, status = calibrate_nss_ols(clean_maturities, clean_yields)
+    # Objective function
+    def objective(params):
+        beta0, beta1, beta2, beta3, tau1, tau2 = params
+        curve = SvenssonCurve(beta0, beta1, beta2, beta3, tau1, tau2)
+        predicted = np.array([curve(t) for t in clean_maturities])
+        return predicted - clean_yields
 
-    # Get fitted values for all original maturities
+    # Initial guess
+    x0 = [clean_yields.mean(), -0.02, 0.02, 0.01, 2.0, 5.0]
+
+    # Bounds: both taus must be positive
+    bounds = ([-np.inf, -np.inf, -np.inf, -np.inf, 0.01, 0.01],
+              [np.inf, np.inf, np.inf, np.inf, 100, 100])
+
+    # Fit
+    result = least_squares(objective, x0, bounds=bounds)
+
+    # Create curve object
+    curve = SvenssonCurve(*result.x)
+
+    # Get fitted values
     fitted_yields = np.array([curve(t) for t in maturities])
 
     return curve, fitted_yields
@@ -134,13 +204,6 @@ def fit_country_curves(
         - 'curve': fitted curve object
         - 'observed_yields': original observed yields
         - 'observed_maturities': original maturities
-
-    Examples
-    --------
-    >>> result = fit_country_curves(
-    ...     bond_data, 'US', pd.Timestamp('2025-01-31'),
-    ...     np.array([1, 2, 5, 10]), model='svensson'
-    ... )
     """
     # Filter data for specific country and date
     country_data = bond_data[
