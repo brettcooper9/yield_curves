@@ -113,11 +113,39 @@ highlighted_countries = st.sidebar.multiselect(
 df_filtered = yield_df[yield_df['date'] == selected_date].copy()
 df_filtered['is_highlighted'] = df_filtered['country'].isin(highlighted_countries)
 
+# Define consistent color mapping for countries
+# Professional color palette for financial data
+plotly_colors = [
+    '#2E5090',  # Deep Blue - Australia
+    '#E85D75',  # Coral Red - Brazil
+    '#4A90A4',  # Teal - Canada
+    '#D64545',  # Red - Switzerland
+    '#E8B55D',  # Gold - China
+    '#4169A1',  # Royal Blue - Eurozone
+    '#8B4789',  # Purple - UK
+    '#E87D3E',  # Orange - India
+    '#5C9D73',  # Green - Japan
+    '#C9596B',  # Rose - Mexico
+    '#2F5F8F',  # Navy - United States
+    '#6B7B8C'   # Gray - WPU
+]
+
+# Map country codes to full names and colors
+country_to_name = {
+    'AU': 'Australia', 'BR': 'Brazil', 'CA': 'Canada', 'CH': 'Switzerland',
+    'CN': 'China', 'EU': 'Eurozone', 'GB': 'UK', 'IN': 'India',
+    'JP': 'Japan', 'MX': 'Mexico', 'US': 'United States', 'WPU': 'WPU'
+}
+
+sorted_countries = sorted(df_filtered['country'].unique())
+country_colors = {country: plotly_colors[i % len(plotly_colors)]
+                  for i, country in enumerate(sorted_countries)}
+
 # Create the plot
 fig = go.Figure()
 
 # Plot each country
-for country in sorted(df_filtered['country'].unique()):
+for country in sorted_countries:
     df_country = df_filtered[df_filtered['country'] == country].sort_values('maturity')
     is_highlighted = country in highlighted_countries
 
@@ -127,7 +155,7 @@ for country in sorted(df_filtered['country'].unique()):
         opacity = 1.0
         mode = 'lines+markers'
         showlegend = True
-        line_color = None  # Use default plotly colors
+        line_color = country_colors[country]  # Use consistent color
     else:
         line_width = 2  # Bolder gray lines
         opacity = 0.6  # More visible
@@ -205,20 +233,27 @@ if 'WPU' in countries:
             weight_date = weight_date_list[-1]
             weights_row = wpu_weights.loc[weight_date]
 
-            # Country mapping
-            country_map = {
-                'AUD': 'Australia', 'BRL': 'Brazil', 'CAD': 'Canada', 'CHF': 'Switzerland',
-                'CNY': 'China', 'EUR': 'Eurozone', 'GBP': 'UK', 'INR': 'India',
-                'JPY': 'Japan', 'MXN': 'Mexico', 'USD': 'United States'
+            # Currency to country code mapping (for color lookup)
+            currency_to_code = {
+                'AUD': 'AU', 'BRL': 'BR', 'CAD': 'CA', 'CHF': 'CH',
+                'CNY': 'CN', 'EUR': 'EU', 'GBP': 'GB', 'INR': 'IN',
+                'JPY': 'JP', 'MXN': 'MX', 'USD': 'US'
             }
 
             # Extract weights
             weight_data = []
-            for currency, country_name in country_map.items():
+            for currency, country_code in currency_to_code.items():
                 if currency in weights_row.index:
                     weight = weights_row[currency]
                     if not pd.isna(weight) and weight > 0:
-                        weight_data.append({'Country': country_name, 'Weight': weight})
+                        country_name = country_to_name.get(country_code, country_code)
+                        country_color = country_colors.get(country_code, '#cccccc')
+                        weight_data.append({
+                            'Country': country_name,
+                            'CountryCode': country_code,
+                            'Weight': weight,
+                            'Color': country_color
+                        })
 
             # Sort by weight descending for stacking order (largest first)
             weight_df = pd.DataFrame(weight_data).sort_values('Weight', ascending=False)
@@ -226,19 +261,13 @@ if 'WPU' in countries:
             # Create stacked horizontal bar chart
             fig_weights = go.Figure()
 
-            # Define color palette
-            colors = [
-                '#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd',
-                '#8c564b', '#e377c2', '#7f7f7f', '#bcbd22', '#17becf', '#aec7e8'
-            ]
-
             for idx, row in weight_df.iterrows():
                 fig_weights.add_trace(go.Bar(
                     x=[row['Weight']],
                     y=['WPU'],
                     orientation='h',
                     name=row['Country'],
-                    marker=dict(color=colors[idx % len(colors)]),
+                    marker=dict(color=row['Color']),  # Use matching color from yield curve chart
                     text=f"{row['Weight']:.1f}%",
                     textposition='inside',
                     hovertemplate=f"<b>{row['Country']}</b><br>Weight: {row['Weight']:.2f}%<extra></extra>"
