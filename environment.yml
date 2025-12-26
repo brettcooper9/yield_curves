@@ -9,6 +9,7 @@ dependencies:
   - scipy>=1.10
   - matplotlib>=3.7
   - seaborn>=0.12
+  - plotly>=5.14  # interactive plotting
   - jupyter>=1.0
   - jupyterlab>=4.0
   - openpyxl>=3.1  # for Excel file reading
