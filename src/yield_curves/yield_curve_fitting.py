@@ -238,6 +238,110 @@ def fit_country_curves(
     }
 
 
+def fit_cubic_spline(
+    yields: np.ndarray,
+    maturities: np.ndarray
+) -> Tuple[CubicSpline, np.ndarray]:
+    """
+    Fit cubic spline to yield data.
+
+    Parameters
+    ----------
+    yields : np.ndarray
+        Array of observed yields (in decimal form)
+    maturities : np.ndarray
+        Array of corresponding maturities in years
+
+    Returns
+    -------
+    curve : CubicSpline
+        Fitted cubic spline object
+    fitted_yields : np.ndarray
+        Model-fitted yields at the given maturities
+    """
+    # Remove any NaN values
+    valid_idx = ~np.isnan(yields)
+    clean_yields = yields[valid_idx]
+    clean_maturities = maturities[valid_idx]
+
+    if len(clean_yields) < 3:
+        raise ValueError("Need at least 3 points to fit cubic spline")
+
+    # Fit cubic spline
+    curve = CubicSpline(clean_maturities, clean_yields, bc_type='natural')
+
+    # Get fitted values for all original maturities
+    fitted_yields = curve(maturities)
+
+    return curve, fitted_yields
+
+
+def fit_bspline(
+    yields: np.ndarray,
+    maturities: np.ndarray,
+    k: int = 3
+) -> Tuple[BSpline, np.ndarray]:
+    """
+    Fit B-spline to yield data.
+
+    Parameters
+    ----------
+    yields : np.ndarray
+        Array of observed yields (in decimal form)
+    maturities : np.ndarray
+        Array of corresponding maturities in years
+    k : int, default=3
+        Degree of the spline (3 = cubic)
+
+    Returns
+    -------
+    curve : BSpline
+        Fitted B-spline object
+    fitted_yields : np.ndarray
+        Model-fitted yields at the given maturities
+    """
+    # Remove any NaN values
+    valid_idx = ~np.isnan(yields)
+    clean_yields = yields[valid_idx]
+    clean_maturities = maturities[valid_idx]
+
+    if len(clean_yields) < k + 1:
+        raise ValueError(f"Need at least {k + 1} points to fit B-spline of degree {k}")
+
+    # Fit B-spline
+    curve = make_interp_spline(clean_maturities, clean_yields, k=k)
+
+    # Get fitted values for all original maturities
+    fitted_yields = curve(maturities)
+
+    return curve, fitted_yields
+
+
+def calculate_rmse(fitted_yields: np.ndarray, observed_yields: np.ndarray) -> float:
+    """
+    Calculate root mean square error between fitted and observed yields.
+
+    Parameters
+    ----------
+    fitted_yields : np.ndarray
+        Model-fitted yields
+    observed_yields : np.ndarray
+        Observed yields
+
+    Returns
+    -------
+    float
+        RMSE value
+    """
+    # Only compare at points where observed yields are not NaN
+    valid_idx = ~np.isnan(observed_yields)
+    if valid_idx.sum() == 0:
+        return np.nan
+
+    diff = fitted_yields[valid_idx] - observed_yields[valid_idx]
+    return np.sqrt(np.mean(diff ** 2))
+
+
 def create_weighted_curve(
     country_curves: Dict[str, np.ndarray],
     weights: Dict[str, float],

@@ -34,27 +34,48 @@ APP_START_DATE = pd.Timestamp('2024-08-30')
 # Load data
 @st.cache_data
 def load_yield_data():
-    """Load fitted yield curve data and observed data markers."""
+    """Load fitted yield curve data with multiple models and observed data markers."""
     data_path = Path('data/processed/fitted_yield_curves.npz')
 
     if not data_path.exists():
         st.error(f"Data file not found: {data_path}")
-        st.info("Please run the yield curve fitting notebook first: notebooks/02_yield_curve_fitting.ipynb")
+        st.info("Please run: python run_fitting.py")
         st.stop()
 
     # Load the numpy archive
     data = np.load(data_path, allow_pickle=True)
 
     # Extract arrays
-    ns_yields = data['ns_yields']  # shape: (countries, dates, maturities)
-    countries = data['countries']
-    dates = pd.to_datetime(data['dates'])
-    maturities = data['maturities']
+    # Check if this is old format (ns_yields) or new format (all_model_yields)
+    if 'all_model_yields' in data:
+        # New multi-model format
+        all_model_yields = data['all_model_yields']  # shape: (model, country, date, maturity)
+        all_model_rmse = data['all_model_rmse']  # shape: (model, country, date)
+        best_model_idx = data['best_model_idx']  # shape: (country, date)
+        model_names = data['model_names']
+        countries = data['countries']
+        dates = pd.to_datetime(data['dates'])
+        maturities = data['maturities']
+    else:
+        # Old single-model format - convert to new format
+        st.warning("⚠️ Using old data format. Please run: python run_fitting.py to get multi-model support")
+        ns_yields = data['ns_yields']  # shape: (country, date, maturity)
+        countries = data['countries']
+        dates = pd.to_datetime(data['dates'])
+        maturities = data['maturities']
+
+        # Convert to multi-model format with only Nelson-Siegel
+        model_names = np.array(['Nelson-Siegel'])
+        all_model_yields = ns_yields[np.newaxis, :, :, :]  # Add model dimension
+        all_model_rmse = np.full((1, len(countries), len(dates)), np.nan)
+        best_model_idx = np.zeros((len(countries), len(dates)), dtype=int)
 
     # Filter to dates >= APP_START_DATE
     date_mask = dates >= APP_START_DATE
     dates = dates[date_mask]
-    ns_yields = ns_yields[:, date_mask, :]
+    all_model_yields = all_model_yields[:, :, date_mask, :]
+    all_model_rmse = all_model_rmse[:, :, date_mask]
+    best_model_idx = best_model_idx[:, date_mask]
 
     # Load raw data to identify observed points and get raw yields
     DATA_DIR = Path('data/raw')
@@ -65,56 +86,35 @@ def load_yield_data():
     raw_dates = pd.to_datetime(bond_data.iloc[7:, 0])
     raw_yields_matrix = bond_data.iloc[7:, 1:].apply(pd.to_numeric, errors='coerce').values
 
-    # Convert to long-form DataFrame with observed flag and raw yields
-    rows = []
-    for c_idx, country in enumerate(countries):
-        if country == 'WPU':  # WPU is always interpolated (weighted composite)
-            for d_idx, date in enumerate(dates):
-                for m_idx, maturity in enumerate(maturities):
-                    rows.append({
-                        'country': country,
-                        'date': date,
-                        'maturity': maturity,
-                        'yield': ns_yields[c_idx, d_idx, m_idx],
-                        'raw_yield': np.nan,  # WPU has no raw yield
-                        'is_observed': False
-                    })
-        else:
-            for d_idx, date in enumerate(dates):
-                # Find corresponding row in raw data
-                raw_date_mask = raw_dates == date
-                if raw_date_mask.sum() == 0:
-                    continue
-                raw_date_idx = np.where(raw_dates == date)[0][0] - raw_dates.index[0]
-
-                # Get country mask in raw data
-                country_mask = raw_countries == country
-                obs_maturities = raw_maturities[country_mask]
-                obs_yields = raw_yields_matrix[raw_date_idx, country_mask]
-
-                # Create dictionary of maturity -> raw yield
-                raw_yield_dict = {}
-                for mat, yld in zip(obs_maturities, obs_yields):
-                    if not np.isnan(yld):
-                        raw_yield_dict[mat] = yld
-
-                for m_idx, maturity in enumerate(maturities):
-                    is_observed = maturity in raw_yield_dict
-                    rows.append({
-                        'country': country,
-                        'date': date,
-                        'maturity': maturity,
-                        'yield': ns_yields[c_idx, d_idx, m_idx],  # Fitted yield
-                        'raw_yield': raw_yield_dict.get(maturity, np.nan),  # Raw observed yield
-                        'is_observed': is_observed
-                    })
-
-    df = pd.DataFrame(rows)
-    return df, countries, dates, maturities
+    # Return all data needed for model selection
+    return {
+        'all_model_yields': all_model_yields,
+        'all_model_rmse': all_model_rmse,
+        'best_model_idx': best_model_idx,
+        'model_names': model_names,
+        'countries': countries,
+        'dates': dates,
+        'maturities': maturities,
+        'raw_maturities': raw_maturities,
+        'raw_countries': raw_countries,
+        'raw_dates': raw_dates,
+        'raw_yields_matrix': raw_yields_matrix
+    }
 
 # Try to load data
 try:
-    yield_df, countries, dates, maturities = load_yield_data()
+    data_dict = load_yield_data()
+    all_model_yields = data_dict['all_model_yields']
+    all_model_rmse = data_dict['all_model_rmse']
+    best_model_idx = data_dict['best_model_idx']
+    model_names = data_dict['model_names']
+    countries = data_dict['countries']
+    dates = data_dict['dates']
+    maturities = data_dict['maturities']
+    raw_maturities = data_dict['raw_maturities']
+    raw_countries = data_dict['raw_countries']
+    raw_dates = data_dict['raw_dates']
+    raw_yields_matrix = data_dict['raw_yields_matrix']
 except Exception as e:
     st.error(f"Error loading data: {e}")
     st.info("""
@@ -165,11 +165,154 @@ max_maturity = st.sidebar.selectbox(
     index=3  # Default to 10 years
 )
 
-# Filter data for selected date and maturity range
-df_filtered = yield_df[
-    (yield_df['date'] == selected_date) &
-    (yield_df['maturity'] <= max_maturity)
-].copy()
+# Model selection
+st.sidebar.subheader("Model Selection")
+st.sidebar.info(
+    "📊 By default, the best-fitting model (lowest RMSE) is automatically selected for each currency.\n\n"
+    f"**Available models:** {', '.join(model_names)}"
+)
+
+# Checkbox to enable manual model selection
+manual_model_selection = st.sidebar.checkbox(
+    "Manually select models per currency",
+    value=False,
+    help="Override automatic model selection and choose models for each currency"
+)
+
+# Create dict to store selected model for each country
+selected_models = {}
+
+if manual_model_selection:
+    st.sidebar.markdown("**Select model for each currency:**")
+    # Show dropdown for each non-WPU country
+    for country in sorted([c for c in countries if c != 'WPU']):
+        # Get best model for this country at selected date
+        c_idx = np.where(countries == country)[0][0]
+        best_idx = best_model_idx[c_idx, selected_date_idx]
+        default_model = model_names[best_idx]
+
+        selected_model = st.sidebar.selectbox(
+            f"{country}:",
+            options=list(model_names),
+            index=int(best_idx),
+            key=f"model_{country}",
+            help=f"Best model (lowest RMSE): {default_model}"
+        )
+        selected_models[country] = np.where(model_names == selected_model)[0][0]
+
+    # WPU uses weighted average of selected models
+    st.sidebar.caption("💡 WPU uses weighted average of each currency's selected model")
+else:
+    # Use best model for each country
+    for country in countries:
+        if country != 'WPU':
+            c_idx = np.where(countries == country)[0][0]
+            selected_models[country] = best_model_idx[c_idx, selected_date_idx]
+
+# Build dataframe with selected models
+def build_dataframe_with_model_selection(selected_date_idx, selected_models, max_maturity):
+    """Build dataframe using selected models for each country."""
+    rows = []
+
+    for c_idx, country in enumerate(countries):
+        if country == 'WPU':
+            # Calculate WPU as weighted average of selected country models
+            # Load WPU weights
+            try:
+                DATA_DIR = Path('data/raw')
+                wpu_weights = pd.read_excel(DATA_DIR / 'wpu_weights.xlsx')
+                wpu_weights['Date'] = pd.to_datetime(wpu_weights['Column1'])
+                wpu_weights = wpu_weights.set_index('Date')
+
+                selected_date = dates[selected_date_idx]
+                weight_date_list = wpu_weights.index[wpu_weights.index <= selected_date]
+
+                if len(weight_date_list) > 0:
+                    weight_date = weight_date_list[-1]
+                    weights_row = wpu_weights.loc[weight_date]
+
+                    country_map = {
+                        'AU': 'AUD', 'BR': 'BRL', 'CA': 'CAD', 'CH': 'CHF',
+                        'CN': 'CNY', 'EU': 'EUR', 'GB': 'GBP', 'IN': 'INR',
+                        'JP': 'JPY', 'MX': 'MXN', 'US': 'USD'
+                    }
+
+                    # Calculate WPU for each maturity
+                    for m_idx, maturity in enumerate(maturities):
+                        if maturity > max_maturity:
+                            continue
+
+                        weighted_sum = 0
+                        total_weight = 0
+
+                        for other_country in countries:
+                            if other_country == 'WPU' or other_country not in country_map:
+                                continue
+
+                            weight = weights_row[country_map[other_country]]
+                            other_c_idx = np.where(countries == other_country)[0][0]
+                            model_idx = selected_models[other_country]
+
+                            country_yield = all_model_yields[model_idx, other_c_idx, selected_date_idx, m_idx]
+
+                            if not np.isnan(country_yield) and weight > 0:
+                                weighted_sum += country_yield * weight
+                                total_weight += weight
+
+                        wpu_yield = weighted_sum / total_weight if total_weight > 0 else np.nan
+
+                        rows.append({
+                            'country': 'WPU',
+                            'date': dates[selected_date_idx],
+                            'maturity': maturity,
+                            'yield': wpu_yield,
+                            'raw_yield': np.nan,
+                            'is_observed': False,
+                            'model': 'Composite'
+                        })
+            except:
+                # Fallback: WPU unavailable
+                pass
+        else:
+            # Regular country - use selected model
+            model_idx = selected_models[country]
+
+            # Get raw data for this country and date
+            raw_date_mask = raw_dates == dates[selected_date_idx]
+            if raw_date_mask.sum() > 0:
+                raw_date_idx = np.where(raw_dates == dates[selected_date_idx])[0][0] - raw_dates.index[0]
+                country_mask = raw_countries == country
+                obs_maturities = raw_maturities[country_mask]
+                obs_yields = raw_yields_matrix[raw_date_idx, country_mask]
+
+                raw_yield_dict = {}
+                for mat, yld in zip(obs_maturities, obs_yields):
+                    if not np.isnan(yld):
+                        raw_yield_dict[mat] = yld
+            else:
+                raw_yield_dict = {}
+
+            for m_idx, maturity in enumerate(maturities):
+                if maturity > max_maturity:
+                    continue
+
+                is_observed = maturity in raw_yield_dict
+                fitted_yield = all_model_yields[model_idx, c_idx, selected_date_idx, m_idx]
+
+                rows.append({
+                    'country': country,
+                    'date': dates[selected_date_idx],
+                    'maturity': maturity,
+                    'yield': fitted_yield,
+                    'raw_yield': raw_yield_dict.get(maturity, np.nan),
+                    'is_observed': is_observed,
+                    'model': model_names[model_idx]
+                })
+
+    return pd.DataFrame(rows)
+
+# Build dataframe with selected models
+df_filtered = build_dataframe_with_model_selection(selected_date_idx, selected_models, max_maturity)
 df_filtered['is_highlighted'] = df_filtered['country'].isin(highlighted_countries)
 
 # Define consistent color mapping for countries
@@ -262,6 +405,9 @@ for country in sorted_countries:
     # Add markers for interpolated points (hollow circles)
     df_interpolated = df_country[df_country['is_observed'] == False]
     if not df_interpolated.empty:
+        # Get model name for this country
+        model_name = df_interpolated['model'].iloc[0] if len(df_interpolated) > 0 else 'Unknown'
+
         fig.add_trace(go.Scatter(
             x=df_interpolated['maturity'],
             y=df_interpolated['yield'],
@@ -278,7 +424,7 @@ for country in sorted_countries:
                 f"<b>{country}</b><br>"
                 "Maturity: %{x:.1f} yr<br>"
                 "Yield: %{y:.2f}%<br>"
-                "<i>Fitted (Nelson-Siegel)</i><br>"
+                f"<i>Fitted ({model_name})</i><br>"
                 "<extra></extra>"
             )
         ))
@@ -428,7 +574,10 @@ if 'WPU' in countries:
 
 # Statistics table
 st.subheader("Current Yield Levels")
-st.caption("Values shown with * are observed market data. Others are fitted using Nelson-Siegel model.")
+if manual_model_selection:
+    st.caption("Values shown with * are observed market data. Others are fitted using the selected model for each currency.")
+else:
+    st.caption("Values shown with * are observed market data. Others are fitted using the best RMSE model for each currency (auto-selected).")
 
 # Create summary table with observed markers
 if not df_filtered[df_filtered['is_highlighted']].empty:
@@ -479,26 +628,38 @@ with st.expander("ℹ️ About this app"):
     - **Country highlighting**: Select countries to emphasize
     - **Interactive tooltips**: Hover over curves for detailed values
     - **Observed vs Fitted**: Filled markers show observed data, hollow markers show fitted values
+    - **Multi-model fitting**: 4 models available (Nelson-Siegel, Svensson, Cubic Spline, B-Spline)
+    - **Auto model selection**: Best-fitting model (lowest RMSE) automatically chosen for each currency
+    - **Manual model override**: Optional per-currency model selection
     - **WPU composition**: View weighted currency basket breakdown
 
     **Data:**
-    - Yield curves fitted using Nelson-Siegel model
+    - Yield curves fitted using 4 different models
+    - Models: Nelson-Siegel, Svensson, Cubic Spline, B-Spline
+    - Best model auto-selected based on RMSE (Root Mean Square Error)
     - Data source: Multi-country government bond yields
     - Maturities: 3 months to 50 years
     - Start date: August 2024 (when Russia dropped from WPU basket)
 
+    **Model Selection:**
+    - **Default (Auto)**: Best RMSE model is automatically selected for each currency-date
+    - **Manual Override**: Check "Manually select models per currency" to choose specific models
+    - **WPU Calculation**: Uses weighted average of each currency's selected model
+    - Hover over fitted points to see which model was used
+
     **Chart Legend:**
     - **Filled circles**: Observed market yields
-    - **Hollow circles**: Fitted yields (Nelson-Siegel interpolation)
-    - Hover over any point to see if it's observed or fitted
+    - **Hollow circles**: Fitted yields (model-interpolated)
+    - Hover over any point to see if it's observed or fitted, and which model was used
 
     **Usage:**
     1. Use the date slider to select a time period
     2. Choose maximum maturity to display (default: 10 years)
     3. Select countries to highlight in the sidebar
-    4. Hover over points to see exact values and data source
-    5. View WPU composition chart below the main plot
-    6. Check the table - values with * are observed data
+    4. (Optional) Enable manual model selection to override defaults
+    5. Hover over points to see exact values, data source, and model used
+    6. View WPU composition chart below the main plot
+    7. Check the table - values with * are observed data
     """)
 
 # Footer

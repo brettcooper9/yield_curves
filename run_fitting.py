@@ -9,7 +9,9 @@ sys.path.insert(0, 'src')
 import numpy as np
 import pandas as pd
 from pathlib import Path
-from yield_curves.yield_curve_fitting import fit_nelson_siegel, fit_svensson
+from yield_curves.yield_curve_fitting import (
+    fit_nelson_siegel, fit_svensson, fit_cubic_spline, fit_bspline, calculate_rmse
+)
 
 print("Loading raw bond data...")
 
@@ -50,10 +52,15 @@ print(f"Number of dates: {len(fitting_dates)}")
 print(f"Countries: {unique_countries}")
 print(f"Number of maturities: {len(unique_maturities)}")
 
-# Initialize array to store fitted yields
-ns_fitted_yields = np.zeros((len(unique_countries), len(fitting_dates), len(unique_maturities)))
+# Initialize arrays to store fitted yields for all 4 models
+# Shape: (model, country, date, maturity)
+model_names = ['Nelson-Siegel', 'Svensson', 'Cubic Spline', 'B-Spline']
+n_models = len(model_names)
+all_fitted_yields = np.zeros((n_models, len(unique_countries), len(fitting_dates), len(unique_maturities)))
+all_rmse = np.zeros((n_models, len(unique_countries), len(fitting_dates)))
 
-print("\nFitting Nelson-Siegel curves for each country-date...")
+print(f"\nFitting {n_models} models for each country-date...")
+print(f"Models: {', '.join(model_names)}")
 
 # Fit curves for each country and date
 errors = []
@@ -63,29 +70,56 @@ for date_idx, date in enumerate(fitting_dates):
     row_idx = dates[dates == date].index[0] - dates.index[0]
 
     for country_idx, country in enumerate(unique_countries):
-        try:
-            # Get data for this country and date
-            country_mask = countries == country
-            obs_maturities = maturities[country_mask]
-            obs_yields = yields_matrix[row_idx, country_mask] / 100
+        # Get data for this country and date
+        country_mask = countries == country
+        obs_maturities = maturities[country_mask]
+        obs_yields = yields_matrix[row_idx, country_mask] / 100
 
-            # Remove NaN values
-            valid = ~np.isnan(obs_yields)
-            if valid.sum() < 3:  # Need at least 3 points
-                continue
+        # Remove NaN values
+        valid = ~np.isnan(obs_yields)
+        if valid.sum() < 3:  # Need at least 3 points
+            continue
 
-            clean_mats = obs_maturities[valid]
-            clean_yields = obs_yields[valid]
+        clean_mats = obs_maturities[valid]
+        clean_yields = obs_yields[valid]
 
-            # Fit Nelson-Siegel curve
-            ns_curve, _ = fit_nelson_siegel(clean_yields, clean_mats)
+        # Get all maturities' observed yields for RMSE calculation
+        all_obs_yields = obs_yields.copy()
 
-            # Get fitted values at standard maturities
-            for mat_idx, maturity in enumerate(unique_maturities):
-                ns_fitted_yields[country_idx, date_idx, mat_idx] = ns_curve(maturity) * 100
+        # Fit all 4 models
+        for model_idx, model_name in enumerate(model_names):
+            try:
+                if model_name == 'Nelson-Siegel':
+                    curve, fitted = fit_nelson_siegel(clean_yields, clean_mats)
+                elif model_name == 'Svensson':
+                    curve, fitted = fit_svensson(clean_yields, clean_mats)
+                elif model_name == 'Cubic Spline':
+                    curve, fitted = fit_cubic_spline(clean_yields, clean_mats)
+                elif model_name == 'B-Spline':
+                    curve, fitted = fit_bspline(clean_yields, clean_mats)
 
-        except Exception as e:
-            errors.append((date, country, str(e)))
+                # Get fitted values at standard maturities
+                fitted_at_maturities = np.zeros(len(unique_maturities))
+                for mat_idx, maturity in enumerate(unique_maturities):
+                    fitted_at_maturities[mat_idx] = curve(maturity)
+
+                # Store fitted yields (convert to percentage)
+                all_fitted_yields[model_idx, country_idx, date_idx, :] = fitted_at_maturities * 100
+
+                # Calculate RMSE against observed yields
+                # Create array of fitted yields at observed maturities for RMSE
+                fitted_at_obs = np.zeros(len(obs_maturities))
+                for i, mat in enumerate(obs_maturities):
+                    fitted_at_obs[i] = curve(mat)
+
+                rmse = calculate_rmse(fitted_at_obs, all_obs_yields)
+                all_rmse[model_idx, country_idx, date_idx] = rmse
+
+            except Exception as e:
+                errors.append((date, country, model_name, str(e)))
+                # Fill with NaN on error
+                all_fitted_yields[model_idx, country_idx, date_idx, :] = np.nan
+                all_rmse[model_idx, country_idx, date_idx] = np.nan
 
     if (date_idx + 1) % 10 == 0:
         print(f"  Processed {date_idx + 1}/{len(fitting_dates)} dates")
@@ -93,7 +127,18 @@ for date_idx, date in enumerate(fitting_dates):
 print(f"\nFitting complete!")
 print(f"Errors encountered: {len(errors)}")
 
-# Calculate WPU weighted composite curve
+# Find best model for each country-date based on RMSE
+best_model_idx = np.nanargmin(all_rmse, axis=0)  # Shape: (country, date)
+print(f"\nBest model selection (by RMSE):")
+for country_idx, country in enumerate(unique_countries):
+    model_counts = np.bincount(best_model_idx[country_idx, :][~np.isnan(all_rmse[:, country_idx, :]).all(axis=0)], minlength=n_models)
+    print(f"  {country}: ", end="")
+    for m_idx, count in enumerate(model_counts):
+        if count > 0:
+            print(f"{model_names[m_idx]}={count} ", end="")
+    print()
+
+# Calculate WPU weighted composite curve using best model for each country
 print("\nCalculating WPU weighted composite curve...")
 
 # Load WPU weights
@@ -110,48 +155,61 @@ country_map = {
     'JP': 'JPY', 'MX': 'MXN', 'US': 'USD'
 }
 
-# Initialize WPU yields array
-wpu_fitted_yields = np.zeros((len(fitting_dates), len(unique_maturities)))
+# Initialize WPU yields array for each model
+wpu_fitted_yields = np.zeros((n_models, len(fitting_dates), len(unique_maturities)))
 
-# Calculate weighted average for each date
-for date_idx, date in enumerate(fitting_dates):
-    # Get weights for this date (use most recent available)
-    weight_date_list = wpu_weights.index[wpu_weights.index <= date]
-    if len(weight_date_list) == 0:
-        print(f"Warning: No weights available for {date}, skipping")
-        continue
+# Calculate weighted average for each date and model
+for model_idx in range(n_models):
+    for date_idx, date in enumerate(fitting_dates):
+        # Get weights for this date (use most recent available)
+        weight_date_list = wpu_weights.index[wpu_weights.index <= date]
+        if len(weight_date_list) == 0:
+            continue
 
-    weight_date = weight_date_list[-1]
-    weights_row = wpu_weights.loc[weight_date]
+        weight_date = weight_date_list[-1]
+        weights_row = wpu_weights.loc[weight_date]
 
-    # Calculate weighted average across countries for each maturity
-    for mat_idx in range(len(unique_maturities)):
-        weighted_sum = 0
-        total_weight = 0
+        # Calculate weighted average across countries for each maturity
+        for mat_idx in range(len(unique_maturities)):
+            weighted_sum = 0
+            total_weight = 0
 
-        for country_idx, country in enumerate(unique_countries):
-            if country in country_map:
-                weight_col = country_map[country]
-                weight = weights_row[weight_col]
+            for country_idx, country in enumerate(unique_countries):
+                if country in country_map:
+                    weight_col = country_map[country]
+                    weight = weights_row[weight_col]
 
-                # Get yield for this country/date/maturity
-                country_yield = ns_fitted_yields[country_idx, date_idx, mat_idx]
+                    # Get yield for this country/date/maturity from this model
+                    country_yield = all_fitted_yields[model_idx, country_idx, date_idx, mat_idx]
 
-                if not np.isnan(country_yield) and weight > 0:
-                    weighted_sum += country_yield * weight
-                    total_weight += weight
+                    if not np.isnan(country_yield) and weight > 0:
+                        weighted_sum += country_yield * weight
+                        total_weight += weight
 
-        # Store weighted average
-        if total_weight > 0:
-            wpu_fitted_yields[date_idx, mat_idx] = weighted_sum / total_weight
+            # Store weighted average
+            if total_weight > 0:
+                wpu_fitted_yields[model_idx, date_idx, mat_idx] = weighted_sum / total_weight
 
-print(f"WPU curve calculated for {len(fitting_dates)} dates")
+print(f"WPU curve calculated for {len(fitting_dates)} dates across {n_models} models")
 
-# Combine country yields and WPU yields
+# Add WPU to countries list
 all_countries = list(unique_countries) + ['WPU']
-all_ns_yields = np.concatenate([
-    ns_fitted_yields,
-    wpu_fitted_yields.reshape(1, len(fitting_dates), len(unique_maturities))
+
+# Expand arrays to include WPU
+# Shape: (model, country+WPU, date, maturity)
+all_fitted_yields_with_wpu = np.concatenate([
+    all_fitted_yields,
+    wpu_fitted_yields[:, np.newaxis, :, :]
+], axis=1)
+
+# WPU has no RMSE (it's a composite)
+wpu_rmse = np.full((n_models, 1, len(fitting_dates)), np.nan)
+all_rmse_with_wpu = np.concatenate([all_rmse, wpu_rmse], axis=1)
+
+# Expand best_model_idx to include WPU (use Nelson-Siegel as default)
+best_model_idx_with_wpu = np.concatenate([
+    best_model_idx,
+    np.zeros((1, len(fitting_dates)), dtype=int)  # WPU defaults to first model
 ], axis=0)
 
 print(f"\nTotal yield curves: {len(all_countries)} (includes WPU)")
@@ -162,14 +220,23 @@ output_path.parent.mkdir(parents=True, exist_ok=True)
 
 np.savez(
     output_path,
-    ns_yields=all_ns_yields,
+    # All model yields: shape (model, country, date, maturity)
+    all_model_yields=all_fitted_yields_with_wpu,
+    # RMSE for each model: shape (model, country, date)
+    all_model_rmse=all_rmse_with_wpu,
+    # Best model index for each country-date: shape (country, date)
+    best_model_idx=best_model_idx_with_wpu,
+    # Model names
+    model_names=np.array(model_names),
+    # Metadata
     countries=np.array(all_countries),
     dates=fitting_dates.values,
-    maturities=unique_maturities
+    maturities=np.array(unique_maturities)
 )
 
 print(f"\nSaved fitted yield curves to {output_path}")
-print(f"  Shape: {all_ns_yields.shape}")
+print(f"  All models shape: {all_fitted_yields_with_wpu.shape}")
+print(f"  Models: {len(model_names)}")
 print(f"  Countries: {len(all_countries)}")
 print(f"  Dates: {len(fitting_dates)}")
 print(f"  Maturities: {len(unique_maturities)}")
