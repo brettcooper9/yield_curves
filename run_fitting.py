@@ -103,17 +103,10 @@ for date_idx, date in enumerate(fitting_dates):
                     curve, fitted = fit_bspline(clean_yields, clean_mats)
 
                 # Get fitted values at standard maturities
+                # Allow all models to extrapolate for smooth WPU curves
                 fitted_at_maturities = np.zeros(len(unique_maturities))
                 for mat_idx, maturity in enumerate(unique_maturities):
-                    # For spline models, only use predictions within observed range
-                    if model_name in ['Cubic Spline', 'B-Spline']:
-                        if maturity < min_observed_mat or maturity > max_observed_mat:
-                            fitted_at_maturities[mat_idx] = np.nan
-                        else:
-                            fitted_at_maturities[mat_idx] = curve(maturity)
-                    else:
-                        # Parametric models can extrapolate
-                        fitted_at_maturities[mat_idx] = curve(maturity)
+                    fitted_at_maturities[mat_idx] = curve(maturity)
 
                 # Store fitted yields (convert to percentage)
                 all_fitted_yields[model_idx, country_idx, date_idx, :] = fitted_at_maturities * 100
