@@ -220,19 +220,29 @@ if 'WPU' in countries:
                     if not pd.isna(weight) and weight > 0:
                         weight_data.append({'Country': country_name, 'Weight': weight})
 
-            # Create horizontal bar chart
-            weight_df = pd.DataFrame(weight_data).sort_values('Weight', ascending=True)
+            # Sort by weight descending for stacking order (largest first)
+            weight_df = pd.DataFrame(weight_data).sort_values('Weight', ascending=False)
 
-            fig_weights = go.Figure(go.Bar(
-                x=weight_df['Weight'],
-                y=weight_df['Country'],
-                orientation='h',
-                marker=dict(color='steelblue'),
-                text=weight_df['Weight'].round(2),
-                texttemplate='%{text}%',
-                textposition='outside',
-                hovertemplate='<b>%{y}</b><br>Weight: %{x:.2f}%<extra></extra>'
-            ))
+            # Create stacked horizontal bar chart
+            fig_weights = go.Figure()
+
+            # Define color palette
+            colors = [
+                '#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd',
+                '#8c564b', '#e377c2', '#7f7f7f', '#bcbd22', '#17becf', '#aec7e8'
+            ]
+
+            for idx, row in weight_df.iterrows():
+                fig_weights.add_trace(go.Bar(
+                    x=[row['Weight']],
+                    y=['WPU'],
+                    orientation='h',
+                    name=row['Country'],
+                    marker=dict(color=colors[idx % len(colors)]),
+                    text=f"{row['Weight']:.1f}%",
+                    textposition='inside',
+                    hovertemplate=f"<b>{row['Country']}</b><br>Weight: {row['Weight']:.2f}%<extra></extra>"
+                ))
 
             fig_weights.update_layout(
                 title=dict(
@@ -243,15 +253,23 @@ if 'WPU' in countries:
                     title="Weight (%)",
                     gridcolor='lightgray',
                     showgrid=True,
-                    range=[0, max(weight_df['Weight']) * 1.15]  # Add space for labels
+                    range=[0, 105]
                 ),
                 yaxis=dict(
                     title="",
-                    gridcolor='lightgray'
+                    showticklabels=False
                 ),
-                height=400,
+                barmode='stack',
+                height=200,
                 plot_bgcolor='white',
-                margin=dict(l=120, r=50, t=80, b=50)
+                margin=dict(l=50, r=50, t=80, b=50),
+                legend=dict(
+                    orientation='h',
+                    yanchor='bottom',
+                    y=-0.3,
+                    xanchor='center',
+                    x=0.5
+                )
             )
 
             st.plotly_chart(fig_weights, use_container_width=True)
