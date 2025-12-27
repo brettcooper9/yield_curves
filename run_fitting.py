@@ -43,8 +43,14 @@ print(f"Unique countries: {sorted(set(countries))}")
 START_DATE = '2024-08-30'  # When Russia dropped from WPU basket
 fitting_dates = dates[dates >= START_DATE]
 
+# Define maximum maturity for fitting and plotting
+# Limits extrapolation to avoid extreme values at long maturities
+MAX_MATURITY = 20  # years
+
 # Get unique values for output
 unique_maturities = sorted(set(maturities[~np.isnan(maturities)]))
+# Filter maturities to MAX_MATURITY
+unique_maturities = [mat for mat in unique_maturities if mat <= MAX_MATURITY]
 unique_countries = sorted(set(countries))
 
 print(f"\nFitting period: {fitting_dates.min()} to {fitting_dates.max()}")

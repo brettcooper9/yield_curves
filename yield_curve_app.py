@@ -149,19 +149,34 @@ st.sidebar.subheader("Highlight Countries")
 if 'WPU' not in countries:
     st.sidebar.warning("⚠️ WPU curve not found in data. Make sure to run all cells in the fitting notebook.")
 
+# Initialize session state for highlighted countries
 # Default: select WPU and top 4 currencies by weight (US, EU, GB, JP)
 default_countries = ['WPU', 'US', 'EU', 'GB', 'JP'] if 'WPU' in countries else ['US', 'EU', 'GB', 'JP']
+if 'highlighted_countries' not in st.session_state:
+    st.session_state.highlighted_countries = default_countries
+
+# Add "Select All" and "Clear All" buttons
+col1, col2 = st.sidebar.columns(2)
+if col1.button("Select All"):
+    st.session_state.highlighted_countries = sorted(countries)
+if col2.button("Clear All"):
+    st.session_state.highlighted_countries = []
+
+# Country multiselect
 highlighted_countries = st.sidebar.multiselect(
     "Select countries to highlight:",
     options=sorted(countries),
-    default=default_countries
+    default=st.session_state.highlighted_countries
 )
+
+# Update session state with multiselect changes
+st.session_state.highlighted_countries = highlighted_countries
 
 # Maturity range selector (below country selection)
 st.sidebar.subheader("Maturity Range")
 max_maturity = st.sidebar.selectbox(
     "Maximum maturity to display:",
-    options=[1, 3, 5, 10, 30, 50],
+    options=[1, 3, 5, 10, 20],
     index=3  # Default to 10 years
 )
 
